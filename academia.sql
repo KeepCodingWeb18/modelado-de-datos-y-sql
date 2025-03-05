@@ -1,9 +1,8 @@
-drop schema if exists franciscomoma cascade;
+drop schema if exists franciscomoma_academia cascade;
 
-create schema franciscomoma;
+create schema franciscomoma_academia;
 
-set schema 'franciscomoma';
-
+set schema 'franciscomoma_academia';
 
 create table persona(
 	id serial primary key,
@@ -2083,6 +2082,76 @@ INSERT INTO tmp_academia (nombre,apellido_1,apellido_2,dni,email,telefono,movil,
 	 ('Rosa maria','Hidalgo','Martin','4460151Z','rosa maria.hidalgo.martin@gmail.com',908473191,678721487,'2015-09-02','DevOps & Cloud Computing Full Stack','2023-10-23','Torresandino','Burgos','Dolores Ibárruri','50 2B','Python',3),
 	 ('Rosa maria','Hidalgo','Martin','4460151Z','rosa maria.hidalgo.martin@gmail.com',908473191,678721487,'2015-09-02','DevOps & Cloud Computing Full Stack','2023-10-23','Torresandino','Burgos','Dolores Ibárruri','50 2B','Plataformas Cloud y Kubernetes',10);
 
+
+
+-- Nota media
+select dni, nombre, apellido_1, apellido_2, count(dni) 
+from tmp_academia 
+group by dni, nombre, apellido_1, apellido_2;
+
+
+-- insert into provincia (nombre) values ('Albacete')
+
+
+create unique index dni_sin_repetir on persona (lower(dni));
+
+insert into persona (dni, nombre, apellido_1, apellido_2)
+select distinct dni, nombre, apellido_1, apellido_2 from tmp_academia;
+
+
+select * from persona;
+
+create unique index provincia_sin_repetir on provincia (lower(provincia));
+
+insert into provincia (provincia)
+select distinct provincia
+from tmp_academia 
+order by provincia;
+
+
+select * from provincia;
+
+
+select t.provincia, p.* from tmp_academia as t
+inner join provincia as p on p.provincia = t.provincia
+
+
+create unique index poblacion_sin_repetir on poblacion (lower(poblacion), id_provincia);
+
+
+
+
+insert into poblacion (id_provincia, poblacion)
+select p.id, t.poblacion from tmp_academia t
+inner join provincia p on p.provincia = t.provincia
+group by  p.id, t.poblacion
+order by t.poblacion;
+
+
+select * from tmp_academia;
+
+
+select 
+	curso, 
+	case when date_part('month', cast(fecha_matriculacion as date)) > 9 
+	then 'XVIII'
+	else 'XVII'
+	end edicion
+from tmp_academia where fecha_matriculacion != ''
+group by curso, date_part('month', cast(fecha_matriculacion as date))
+order by date_part('month', cast(fecha_matriculacion as date));
+
+
+select distinct curso from tmp_academia;
+
+
+select tmp_academia.*, provincia.id
+from tmp_academia
+inner join provincia on provincia.provincia = tmp_academia.provincia 
+where provincia.provincia = 'Navarra'
+
+
+select provincia.* from provincia where provincia.provincia = 'Navarra'
 
 /*
  * 
