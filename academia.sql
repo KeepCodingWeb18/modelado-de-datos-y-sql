@@ -2085,7 +2085,7 @@ INSERT INTO tmp_academia (nombre,apellido_1,apellido_2,dni,email,telefono,movil,
 
 
 -- Nota media
-select dni, nombre, apellido_1, apellido_2, count(dni) 
+select dni, nombre, apellido_1, apellido_2, avg(nota) 
 from tmp_academia 
 group by dni, nombre, apellido_1, apellido_2;
 
