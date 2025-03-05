@@ -2083,43 +2083,19 @@ INSERT INTO tmp_academia (nombre,apellido_1,apellido_2,dni,email,telefono,movil,
 	 ('Rosa maria','Hidalgo','Martin','4460151Z','rosa maria.hidalgo.martin@gmail.com',908473191,678721487,'2015-09-02','DevOps & Cloud Computing Full Stack','2023-10-23','Torresandino','Burgos','Dolores Ibárruri','50 2B','Plataformas Cloud y Kubernetes',10);
 
 
-
--- Nota media
-select dni, nombre, apellido_1, apellido_2, avg(nota) 
-from tmp_academia 
-group by dni, nombre, apellido_1, apellido_2;
-
-
--- insert into provincia (nombre) values ('Albacete')
-
-
-create unique index dni_sin_repetir on persona (lower(dni));
-
-insert into persona (dni, nombre, apellido_1, apellido_2)
-select distinct dni, nombre, apellido_1, apellido_2 from tmp_academia;
-
-
-select * from persona;
-
-create unique index provincia_sin_repetir on provincia (lower(provincia));
+-- Nota media con la función avg()
+/*
+ * 
+	select dni, nombre, apellido_1, apellido_2, avg(nota) 
+	from tmp_academia 
+	group by dni, nombre, apellido_1, apellido_2;
+ * 
+ */
 
 insert into provincia (provincia)
 select distinct provincia
 from tmp_academia 
 order by provincia;
-
-
-select * from provincia;
-
-
-select t.provincia, p.* from tmp_academia as t
-inner join provincia as p on p.provincia = t.provincia
-
-
-create unique index poblacion_sin_repetir on poblacion (lower(poblacion), id_provincia);
-
-
-
 
 insert into poblacion (id_provincia, poblacion)
 select p.id, t.poblacion from tmp_academia t
@@ -2127,21 +2103,135 @@ inner join provincia p on p.provincia = t.provincia
 group by  p.id, t.poblacion
 order by t.poblacion;
 
+insert into persona (dni, nombre, apellido_1, apellido_2)
+select distinct dni, nombre, apellido_1, apellido_2 from tmp_academia;
 
-select * from tmp_academia;
+insert into curso (nombre)
+select distinct curso from tmp_academia
+order by curso;
 
 
-select 
-	curso, 
-	case when date_part('month', cast(fecha_matriculacion as date)) > 9 
+insert into asignatura (nombre)
+select distinct asignatura from tmp_academia
+order by asignatura;
+
+
+-- insert into provincia (nombre) values ('Albacete')
+
+
+create unique index dni_sin_repetir on persona (lower(dni));
+
+
+create unique index provincia_sin_repetir on provincia (lower(provincia));
+
+
+create unique index poblacion_sin_repetir on poblacion (lower(poblacion), id_provincia);
+
+
+insert into edicion (nombre, id_curso)
+select  
+	case when date_part('month', cast(tmp_academia.fecha_matriculacion as date)) > 9 
 	then 'XVIII'
 	else 'XVII'
-	end edicion
-from tmp_academia where fecha_matriculacion != ''
-group by curso, date_part('month', cast(fecha_matriculacion as date))
-order by date_part('month', cast(fecha_matriculacion as date));
+	end edicion,
+	curso.id
+from tmp_academia 
+inner join curso on curso.nombre = tmp_academia.curso
+where tmp_academia.fecha_matriculacion != ''
+group by curso.id, date_part('month', cast(tmp_academia.fecha_matriculacion as date)) > 9
+order by date_part('month', cast(tmp_academia.fecha_matriculacion as date)) > 9;
 
 
+insert into asignatura_por_edicion (id_profesor, id_asignatura, id_edicion)
+select persona.id, asignatura.id, edicion.id from tmp_academia
+inner join persona on persona.dni = tmp_academia.dni
+inner join asignatura on asignatura.nombre = tmp_academia.asignatura
+inner join curso on curso.nombre = tmp_academia.curso
+inner join edicion on edicion.id_curso = curso.id
+where tmp_academia.nota is null;
+
+
+-- Ejemplo de subconsulta
+select count(*) from (
+	select 
+		persona.id,
+		edicion.id,
+		tmp_academia.fecha_matriculacion
+	from tmp_academia
+	inner join persona on persona.dni = tmp_academia.dni
+	inner join curso on curso.nombre = tmp_academia.curso
+	inner join edicion on edicion.nombre = (
+		case when date_part('month', cast(tmp_academia.fecha_matriculacion as date)) > 9 
+			then 'XVIII'
+			else 'XVII'
+		end
+	) and edicion.id_curso = curso.id
+	where tmp_academia.nota is not null
+) persona_edicion;
+
+insert into matrícula (id_alumno, id_edicion, fecha)
+select 
+	persona.id,
+	edicion.id,
+	cast(tmp_academia.fecha_matriculacion as date)
+from tmp_academia
+inner join persona on persona.dni = tmp_academia.dni
+inner join curso on curso.nombre = tmp_academia.curso
+inner join edicion on edicion.nombre = (
+	case when date_part('month', cast(tmp_academia.fecha_matriculacion as date)) > 9 
+		then 'XVIII'
+		else 'XVII'
+	end
+) and edicion.id_curso = curso.id
+where tmp_academia.nota is not null;
+
+
+insert into calificacion (id_alumno, id_asignatura_por_edicion, apto)
+select 
+	persona.id,
+	asignatura_por_edicion.id,
+	tmp_academia.nota > 4
+from tmp_academia
+inner join persona on persona.dni = tmp_academia.dni
+inner join curso on curso.nombre = tmp_academia.curso
+inner join edicion on edicion.nombre = (
+	case when date_part('month', cast(tmp_academia.fecha_matriculacion as date)) > 9 
+		then 'XVIII'
+		else 'XVII'
+	end
+) and edicion.id_curso = curso.id
+inner join asignatura on asignatura.nombre = tmp_academia.asignatura
+inner join asignatura_por_edicion on asignatura.id = asignatura_por_edicion.id_asignatura and edicion.id = asignatura_por_edicion.id_edicion
+where tmp_academia.nota is not null;
+
+
+/*
+select * from tmp_academia where nota is not null;
+
+
+
+select tmp_academia.*, edicion.id from matrícula
+inner join persona on persona.id = matrícula.id_alumno
+inner join edicion on edicion.id = matrícula.id_edicion
+inner join curso on curso.id = edicion.id_curso
+inner join tmp_academia on
+ tmp_academia.dni = persona.dni and
+ tmp_academia.curso = curso.nombre and 
+ tmp_academia.nota is not null and
+(case when date_part('month', cast(tmp_academia.fecha_matriculacion as date)) > 9 
+	then 'XVIII'
+	else 'XVII'
+end) = edicion.nombre
+inner join asignatura on asignatura.nombre = tmp_academia.asignatura
+inner join asignatura_por_edicion on asignatura_por_edicion.id_edicion = edicion.id and asignatura.id = asignatura_por_edicion.id_asignatura
+;
+
+select count(*) from curso;
+
+select id_edicion, count(*) from asignatura_por_edicion group by id_edicion
+*/
+
+/*
 select distinct curso from tmp_academia;
 
 
@@ -2152,6 +2242,20 @@ where provincia.provincia = 'Navarra'
 
 
 select provincia.* from provincia where provincia.provincia = 'Navarra'
+
+
+select * from tmp_academia
+
+
+insert into persona (nombre, apellido_1, apellido_2, dni)
+values ('Ana Belén', 'Fernández', 'Martínez', '77722211K');
+
+
+select * from persona where dni = '77722211K';
+
+*/
+
+
 
 /*
  * 
