@@ -2116,15 +2116,18 @@ select distinct asignatura from tmp_academia
 order by asignatura;
 
 
--- insert into provincia (nombre) values ('Albacete')
-
-
+/*
+ * Creo algunos índices para evitar la duplicidad de valores de texto basándonos en la conversión de
+ * ese texto a mínusculas, así nos aseguramos que cada vez que se inserta un valor en la base de datos
+ * se comprueba con lo que ya tiene convertidos a minúsculas y nos da un error si el valor está repetido
+ */
 create unique index dni_sin_repetir on persona (lower(dni));
-
-
 create unique index provincia_sin_repetir on provincia (lower(provincia));
-
-
+/*
+ * En el caso siguiente, el índice está compuesto por dos atributos o campos, para evitar la duplicidad
+ * de los dos a la vez, es decir, una población podría existir en más de una provincia, pero no podría repetirse
+ * para una misma provincia
+ */
 create unique index poblacion_sin_repetir on poblacion (lower(poblacion), id_provincia);
 
 
@@ -2151,7 +2154,14 @@ inner join edicion on edicion.id_curso = curso.id
 where tmp_academia.nota is null;
 
 
--- Ejemplo de subconsulta
+/*
+ * Ejemplo de subconsulta que obtiene el número de personas que hay en una edición
+ * 
+ * Primero se hace una consulta uniendo las tablas tmp_academia con persona, curso y edición para
+ * tener ligados los valores de tmp_academia con sus IDs dados por la base de datos.
+ * 
+ * Y luego, se encierra la consulta entre paréntesis y se hace una función de agregado count(*)
+ */
 select count(*) from (
 	select 
 		persona.id,
@@ -2169,6 +2179,13 @@ select count(*) from (
 	where tmp_academia.nota is not null
 ) persona_edicion;
 
+
+/*
+ * Añado una constraint unique para evitar que un alumno pueda estar matriculado más de una vez
+ * para una misma edición.
+ */
+alter table matrícula add constraint alumno_y_edicion_unicos unique (id_alumno, id_edicion);
+
 insert into matrícula (id_alumno, id_edicion, fecha)
 select 
 	persona.id,
@@ -2183,7 +2200,9 @@ inner join edicion on edicion.nombre = (
 		else 'XVII'
 	end
 ) and edicion.id_curso = curso.id
-where tmp_academia.nota is not null;
+where tmp_academia.nota is not null
+group by persona.id, edicion.id, tmp_academia.fecha_matriculacion
+order by persona.id;
 
 
 insert into calificacion (id_alumno, id_asignatura_por_edicion, apto)
@@ -2205,109 +2224,116 @@ inner join asignatura_por_edicion on asignatura.id = asignatura_por_edicion.id_a
 where tmp_academia.nota is not null;
 
 
+
 /*
-select * from tmp_academia where nota is not null;
+ * Añado una matrícula más para asegurarnos de que al menos un alumno se ha matriculado en dos cursos distintos.
+ */
+insert into matrícula (id_alumno, id_edicion, fecha) values (1, 12, cast(NOW() as date));
 
 
+select id_alumno, count(id_edicion) from matrícula group by id_alumno having count(id_edicion) > 1;
 
-select tmp_academia.*, edicion.id from matrícula
-inner join persona on persona.id = matrícula.id_alumno
-inner join edicion on edicion.id = matrícula.id_edicion
-inner join curso on curso.id = edicion.id_curso
-inner join tmp_academia on
- tmp_academia.dni = persona.dni and
- tmp_academia.curso = curso.nombre and 
- tmp_academia.nota is not null and
-(case when date_part('month', cast(tmp_academia.fecha_matriculacion as date)) > 9 
-	then 'XVIII'
-	else 'XVII'
-end) = edicion.nombre
-inner join asignatura on asignatura.nombre = tmp_academia.asignatura
-inner join asignatura_por_edicion on asignatura_por_edicion.id_edicion = edicion.id and asignatura.id = asignatura_por_edicion.id_asignatura
+
+/*
+ * Aquellas personas que seguro que no son alumnos.
+ * Recordad que con left join voy a sacar TODOS los registros de la tabla de la izquierda y solo aquellos
+ * que coinciden con los de la derecha, por lo que puedo quedarme solo con los valores de la izquierda
+ * que no coinciden cuando no tengo valores de la tabla de la derecha.
+ * 
+ * Por eso se hace el "where matrícula.id is null" cuando no hay valores nulos en la tabla matrícula y no puede
+ * haberlos, porque matrícula.id es la clave primaria.
+ */
+select * from persona 
+left join matrícula on persona.id = matrícula.id_alumno
+where matrícula.id is null
+order by persona.id;
+
+
+/*
+ * Alumnos que todavía no se han evaluado en algunas asignaturas
+ */
+select 
+	persona.dni,
+	persona.nombre,
+	persona.apellido_1,
+	persona.apellido_2,
+	matrícula.id_edicion,
+	asignatura.nombre,
+	calificacion.apto
+from persona 
+inner join matrícula on persona.id = matrícula.id_alumno
+inner join asignatura_por_edicion on asignatura_por_edicion.id_edicion = matrícula.id_edicion
+inner join asignatura on asignatura.id = asignatura_por_edicion.id_asignatura
+left join calificacion on persona.id = calificacion.id_alumno and calificacion.id_asignatura_por_edicion = asignatura_por_edicion.id
+where calificacion.id is null
+order by persona.id, matrícula.id_edicion;
+
+
+/*
+ * Voy a contar cuantas asignaturas le quedan a cada alumno agrupadas por edicion
+ */
+
+select 
+	dni, 
+	nombre, 
+	apellido_1, 
+	apellido_2, 
+	id_edicion,
+	count(asignatura)
+from (
+	select 
+		persona.id,
+		asignatura_por_edicion.id,
+		persona.dni,
+		persona.nombre,
+		persona.apellido_1,
+		persona.apellido_2,
+		matrícula.id_edicion,
+		asignatura.nombre asignatura,
+		calificacion.apto
+	from persona 
+	inner join matrícula on persona.id = matrícula.id_alumno
+	inner join asignatura_por_edicion on asignatura_por_edicion.id_edicion = matrícula.id_edicion
+	inner join asignatura on asignatura.id = asignatura_por_edicion.id_asignatura
+	left join calificacion on persona.id = calificacion.id_alumno and calificacion.id_asignatura_por_edicion = asignatura_por_edicion.id
+	where calificacion.id is null
+	order by persona.id, matrícula.id_edicion
+)
+group by dni, nombre, apellido_1, apellido_2, id_edicion
+having count(asignatura) > 1;
+
+/*
+ * Creo una vista sobre la consulta anterior. Una vista es simplemente una consulta que he almacenado
+ * en la base de datos para tenerla a mano y poder sacarla de manera recurrente.
+ */
+create view asignaturas_pendientes as
+select 
+	persona.dni,
+	persona.nombre,
+	persona.apellido_1,
+	persona.apellido_2,
+	matrícula.id_edicion,
+	asignatura.nombre asignatura,
+	calificacion.apto
+from persona 
+inner join matrícula on persona.id = matrícula.id_alumno
+inner join asignatura_por_edicion on asignatura_por_edicion.id_edicion = matrícula.id_edicion
+inner join asignatura on asignatura.id = asignatura_por_edicion.id_asignatura
+left join calificacion on persona.id = calificacion.id_alumno and calificacion.id_asignatura_por_edicion = asignatura_por_edicion.id
+where calificacion.id is null
+order by persona.id, matrícula.id_edicion;
+
+
+/*
+ * 
+ * Alumnos que han aprobado el curso porque tienen nota media mayor que 5
+ */
+select 
+nombre, apellido_1, apellido_2, dni, curso, round(avg(nota), 2)
+from tmp_academia 
+where nota is not null
+group by nombre, apellido_1, apellido_2, dni, curso
+having round(avg(nota), 2) >= 5.0
+order by round(avg(nota), 2)
 ;
-
-select count(*) from curso;
-
-select id_edicion, count(*) from asignatura_por_edicion group by id_edicion
-*/
-
-/*
-select distinct curso from tmp_academia;
-
-
-select tmp_academia.*, provincia.id
-from tmp_academia
-inner join provincia on provincia.provincia = tmp_academia.provincia 
-where provincia.provincia = 'Navarra'
-
-
-select provincia.* from provincia where provincia.provincia = 'Navarra'
-
-
-select * from tmp_academia
-
-
-insert into persona (nombre, apellido_1, apellido_2, dni)
-values ('Ana Belén', 'Fernández', 'Martínez', '77722211K');
-
-
-select * from persona where dni = '77722211K';
-
-*/
-
-
-
-/*
- * 
- * 
- * 
- * 
-
-alter table provincia 
-add constraint unique_provincia
-unique (provincia);
-
-
-
-insert into provincia (provincia) values ('ALMERIA');
-
-create unique index unique_provincia_index on provincia (lower(provincia));
-
-create unique index unique_poblacion_index on poblacion (lower(poblacion), id_provincia);
-
-
-insert into poblacion (id_provincia, poblacion) values (6, 'Albacete'), (11, 'Albacete');
-
-
-
-alter table provincia drop constraint unique_provincia;
-
-
-select id, initcap(substring(provincia from 2 for 3)) as "Resultado de la funcion" from provincia;
-
-delete from provincia where id = 2;
-
-
-
-select * from provincia;
-
-update provincia set provincia = initcap(provincia);
-
-
-alter table contacto
-add constraint solo_emails_validos
-check (email like '%@%');
-
-
-
-insert into persona (dni, nombre, apellido_1) values ('777771Z', 'Oscar', 'Cañas');
-
-select * from persona;
-
-insert into contacto (id_persona, telefono, email, calle , numero, direccion) 
-values (1, '88888888', 'hola@mundo', 'Goya', '4', '');
-*/
-
-
-
 
